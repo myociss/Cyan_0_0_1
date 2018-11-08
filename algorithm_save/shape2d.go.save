@@ -1,0 +1,222 @@
+package algorithm
+
+import (
+	"log"
+	"math"
+)
+
+type Shape2d struct {
+	Points 		[]*Vertex2d
+	Weight		float64
+	HighEdge	[2]int
+	LowEdge		[2]int
+	MinAngleId	int
+	MaxAngleId	int
+}
+
+func newShape(group *VertexGroup)(*Shape2d){
+	points := group.Vertices
+	minAngleId := points[0].AngleId
+	//minAngleIdx := 0
+
+	maxAngleId := points[0].AngleId
+
+	for i := 0; i < len(points); i++ {
+
+		if points[i].AngleId < minAngleId {
+			minAngleId = points[i].AngleId
+			//minAngleIdx = i
+		}
+
+		if points[i].AngleId > maxAngleId {
+			maxAngleId = points[i].AngleId
+		}
+	}
+	/*highEdge := [2]int{minAngleIdx, (minAngleIdx + 1) % len(points)}
+	lowEdge := [2]int{minAngleIdx - 1, minAngleIdx}
+	if lowEdge[0] == -1 {
+		lowEdge[0] = len(points) - 1
+	}*/
+
+	var highEdge, lowEdge [2]int
+
+	shape := &Shape2d{points, group.Weight, highEdge, lowEdge, minAngleId, maxAngleId}
+	//shape.checkColinearStart()
+	return shape
+}
+
+func (shape *Shape2d) calcDistances(plane *Plane2d)([]float64){
+	if shape.MaxAngleId >= shape.MinAngleId {
+		log.Println("HERE")
+		shape.HighEdge = [2]int{shape.MinAngleId, (shape.MinAngleId + 1) % len(shape.Points)}
+		shape.LowEdge = [2]int{shape.MinAngleId - 1, shape.MinAngleId}
+		if shape.LowEdge[0] == -1 {
+			shape.LowEdge[0] = len(shape.Points) - 1
+		}
+		shape.checkColinearStart()
+		return shape.calcDistancesRegular(plane)
+	} else {
+		maxAngleDiff := 0.0
+		maxDiffIdx := 0
+		//find biggest difference in angles; the point after this is our start point
+		for i := 1; i < len(shape.Points); i++ {
+			angleDiff := shape.Points[i].Angle - shape.Points[i - 1].Angle
+			if angleDiff > maxAngleDiff {
+				maxAngleDiff = angleDiff
+				maxDiffIdx = i
+			}
+		}
+
+		shape.HighEdge = [2]int{shape.Points[maxDiffIdx].AngleId, shape.Points[(maxDiffIdx + 1) % len(shape.Points)].AngleId}
+		shape.LowEdge = [2]int{shape.Points[maxDiffIdx - 1].AngleId, shape.Points[maxDiffIdx].AngleId}
+		if shape.LowEdge[0] == -1 {
+			shape.LowEdge[0] = len(shape.Points) - 1
+		}
+		shape.checkColinearStart()
+		return shape.calcDistancesWeird(plane, shape.Points[shape.LowEdge[0]].AngleId)
+	}
+}
+
+func (shape *Shape2d) calcDistancesWeird(plane *Plane2d, actualEndAngleId int)([]float64){
+	distances := make([]float64, shape.MaxAngleId - shape.MinAngleId - 1)
+	angleId := shape.Points[shape.LowEdge[1]].AngleId
+
+	v0High, v1High := shape.Points[shape.HighEdge[0]], shape.Points[shape.HighEdge[1]]
+	v0Low, v1Low := shape.Points[shape.LowEdge[0]], shape.Points[shape.LowEdge[1]]
+
+	highEdgeAsLine := line(v0High.Vec, v1High.Vec)
+	lowEdgeAsLine := line(v0Low.Vec, v1Low.Vec)
+
+	count := 0
+
+	for angleId < shape.MaxAngleId {
+		i0, i1 := findIntersect(plane.LineComponents[angleId], highEdgeAsLine),
+			findIntersect(plane.LineComponents[angleId], lowEdgeAsLine)
+
+		xDist, yDist := i1[0] - i0[0], i1[1] - i0[1]
+
+		dist := shape.Weight * math.Sqrt(xDist * xDist + yDist * yDist)
+
+		distances[count] = dist
+		count++
+
+		if v1High.AngleId == angleId {
+			shape.shiftHighEdge()
+			v0High, v1High = shape.Points[shape.HighEdge[0]], shape.Points[shape.HighEdge[1]]
+			highEdgeAsLine = line(v0High.Vec, v1High.Vec)
+		}
+
+		if v0Low.AngleId == angleId {
+			shape.shiftLowEdge()
+			v0Low, v1Low = shape.Points[shape.LowEdge[0]], shape.Points[shape.LowEdge[1]]
+			lowEdgeAsLine = line(v0Low.Vec, v1Low.Vec)
+		}
+		angleId++
+	}
+
+	angleId = 0
+
+	for angleId < actualEndAngleId {
+		i0, i1 := findIntersect(plane.LineComponents[angleId], highEdgeAsLine),
+			findIntersect(plane.LineComponents[angleId], lowEdgeAsLine)
+
+		xDist, yDist := i1[0] - i0[0], i1[1] - i0[1]
+
+		dist := shape.Weight * math.Sqrt(xDist * xDist + yDist * yDist)
+
+		distances[count] = dist
+		count++
+
+		if v1High.AngleId == angleId && angleId != shape.MaxAngleId - 1 {
+			shape.shiftHighEdge()
+			v0High, v1High = shape.Points[shape.HighEdge[0]], shape.Points[shape.HighEdge[1]]
+			highEdgeAsLine = line(v0High.Vec, v1High.Vec)
+		}
+
+		if v0Low.AngleId == angleId && angleId != shape.MaxAngleId - 1{
+			shape.shiftLowEdge()
+			v0Low, v1Low = shape.Points[shape.LowEdge[0]], shape.Points[shape.LowEdge[1]]
+			lowEdgeAsLine = line(v0Low.Vec, v1Low.Vec)
+		}
+		angleId++
+	}
+	return distances
+}
+
+func (shape *Shape2d) calcDistancesRegular(plane *Plane2d)([]float64){
+	distances := make([]float64, shape.MaxAngleId - shape.MinAngleId - 1)
+	angleId := shape.MinAngleId + 1
+
+	v0High, v1High := shape.Points[shape.HighEdge[0]], shape.Points[shape.HighEdge[1]]
+	v0Low, v1Low := shape.Points[shape.LowEdge[0]], shape.Points[shape.LowEdge[1]]
+
+	highEdgeAsLine := line(v0High.Vec, v1High.Vec)
+	lowEdgeAsLine := line(v0Low.Vec, v1Low.Vec)
+
+	count := 0
+
+	for angleId < shape.MaxAngleId {
+		i0, i1 := findIntersect(plane.LineComponents[angleId], highEdgeAsLine),
+			findIntersect(plane.LineComponents[angleId], lowEdgeAsLine)
+
+		xDist, yDist := i1[0] - i0[0], i1[1] - i0[1]
+
+		dist := shape.Weight * math.Sqrt(xDist * xDist + yDist * yDist)
+
+		distances[count] = dist
+		count++
+
+		if v1High.AngleId == angleId && angleId != shape.MaxAngleId - 1 {
+			shape.shiftHighEdge()
+			v0High, v1High = shape.Points[shape.HighEdge[0]], shape.Points[shape.HighEdge[1]]
+			highEdgeAsLine = line(v0High.Vec, v1High.Vec)
+		}
+
+		if v0Low.AngleId == angleId && angleId != shape.MaxAngleId - 1{
+			shape.shiftLowEdge()
+			v0Low, v1Low = shape.Points[shape.LowEdge[0]], shape.Points[shape.LowEdge[1]]
+			lowEdgeAsLine = line(v0Low.Vec, v1Low.Vec)
+		}
+		angleId++
+	}
+	return distances
+}
+
+/* checks if either starting edge has endpoints with the same angle id
+ * TEST THIS
+ */
+func (shape *Shape2d) checkColinearStart(){
+	if shape.Points[shape.HighEdge[0]].AngleId == shape.Points[shape.HighEdge[1]].AngleId {
+		shape.shiftHighEdge()
+	}
+
+	if shape.Points[shape.LowEdge[0]].AngleId == shape.Points[shape.LowEdge[1]].AngleId {
+		shape.shiftLowEdge()
+	}
+}
+
+func (shape *Shape2d) shiftLowEdge(){
+	if shape.LowEdge[0] == 0 {
+		shape.LowEdge[0] = len(shape.Points) - 1
+		shape.LowEdge[1]--
+	} else if shape.LowEdge[1] == 0 {
+		shape.LowEdge[0]--
+		shape.LowEdge[1] = len(shape.Points) - 1
+	} else {
+		shape.LowEdge[0]--
+		shape.LowEdge[1]--
+	}
+}
+
+func (shape *Shape2d) shiftHighEdge(){
+	if shape.HighEdge[0] == len(shape.Points) - 1 {
+		shape.HighEdge[0] = 0
+		shape.HighEdge[1]++
+	} else if shape.HighEdge[1] == len(shape.Points) - 1 {
+		shape.HighEdge[0]++
+		shape.HighEdge[1] = 0
+	} else {
+		shape.HighEdge[0]++
+		shape.HighEdge[1]++
+	}
+}

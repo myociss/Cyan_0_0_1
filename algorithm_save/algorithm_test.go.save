@@ -1,0 +1,227 @@
+package algorithm
+
+import (
+    "testing"
+    "math"
+)
+
+/* tests newPlane2d function to see if it is finding unique angles correctly
+ */
+func TestPlaneSorted(t *testing.T) {
+    /* v0: [-0.6689534883720931, -2.024651162790698], angle: -1.8899
+     * v1: [-2.5698580121703856, -1.5302434077079108], angle: -2.6045
+     * v2: [2.1000632911392407, 1.520506329113924], angle: 0.62667
+     */
+    shape := buildTestPlane()[0]
+    newPlane2d([][]*Vertex2d{shape})
+
+    expectedAngleIdOrder := []int{1, 0, 2}
+
+    angleIdOrder := make([]int, 3)
+
+    for idx, v := range shape {
+        angleIdOrder[idx] = v.AngleId
+    }
+
+    fail := false
+    for i := 0; i < 3; i++ {
+        if expectedAngleIdOrder[i] != angleIdOrder[i]{
+            fail = true
+        }
+    }
+
+    if fail {
+        t.Errorf("Order of angle ids incorrect, got: %+v, want: %+v.",
+            angleIdOrder, expectedAngleIdOrder)
+    }
+}
+
+func TestPlaneLines(t *testing.T) {
+    /* v0: [-0.6689534883720931, -2.024651162790698],
+     *          line: -2.024651162790698x + 0.6689534883720931y = 0
+     * v1: [-2.5698580121703856, -1.5302434077079108], angle: -2.6045,
+     *          line: -1.5302434077079108x + 2.5698580121703856y = 0
+     * v2: [2.1000632911392407, 1.520506329113924], angle: 0.62667
+     *          line: 1.520506329113924x - 2.1000632911392407y = 0
+     * v3: .....
+     */
+
+    testPlane := buildTestPlane()
+    plane2d := newPlane2d(testPlane)
+
+    for _, v := range plane2d.Points {
+        lc := plane2d.LineComponents[v.AngleId]
+
+        if lc[0] * v.Vec[0] + lc[1] * v.Vec[1] != 0.0 {
+            t.Errorf("Incorrect line components for point %+v: %+v.",
+                v.Vec, lc)
+        }
+    }
+}
+
+func TestIntersection(t *testing.T){
+    line0 := line([2]float64{0.0, 0.0}, [2]float64{1.0, 1.0})
+    line1 := line([2]float64{1.0, 3.0}, [2]float64{3.0, 1.0})
+    intersect := findIntersect(line0, line1)
+    expectedIntersect := [2]float64{2.0, 2.0}
+
+    //verify that the intersect is [2.0, 2.0]
+    if intersect[0] != expectedIntersect[0] || intersect[1] != expectedIntersect[1] {
+        t.Errorf("Expected intersect to be %+v, got %+v.",
+            expectedIntersect, intersect)
+    }
+
+    line0 = line([2]float64{0.0, 0.0}, [2]float64{0.0, 2.0})
+    line1 = line([2]float64{-1.0, 1.0}, [2]float64{1.0, 1.0})
+    intersect = findIntersect(line0, line1)
+    expectedIntersect = [2]float64{0.0, 1.0}
+
+    //verify that the intersect is [0.0, 1.0] and the function can handle vertical lines
+    if intersect[0] != expectedIntersect[0] || intersect[1] != expectedIntersect[1] {
+        t.Errorf("Expected intersect to be %+v, got %+v.",
+            expectedIntersect, intersect)
+    }
+}
+
+func TestShapeInnerDistance(t *testing.T){
+    /* a shape has points at [1.0, 1.0], [1.0, 3.0], [-2.0, 3.0] and
+     * [-2.0, 1.0]. these points are encountered by the line tangent
+     * to the origin in clockwise order, making their angle ids
+     * consecutive if the plane contains no other vertices aside from the
+     * origin.
+     *
+     * therefore, the tangent line will have two paths through the shape:
+     * the first will intersect the edge between [-2.0, 1.0] and [1.0, 1.0]
+     * at the point [0.333, 1] and pass through the point [1.0, 3.0]. the first
+     * distance will be 2.108.
+     *
+     * the second path will intersect the edge between [-2.0, 1.0] and [1.0, 1.0]
+     * at the point [-0.667, 1] and pass through the point [-2.0, 3.0]. the second
+     * distance will be 2.404.
+     */
+    
+    v0 := &Vertex2d{[2]float64{1.0, 1.0}, 1, 1, math.Atan2(1.0, 1.0), -1}
+    v1 := &Vertex2d{[2]float64{1.0, 3.0}, 1, 1, math.Atan2(3.0, 1.0), -1}
+    v2 := &Vertex2d{[2]float64{-2.0, 3.0}, 1, 1, math.Atan2(3.0, -2.0), -1}
+    v3 := &Vertex2d{[2]float64{-2.0, 1.0}, 1, 1, math.Atan2(1.0, -2.0), -1}
+
+    group := []*Vertex2d{v0, v1, v2, v3}
+    plane2d := newPlane2d([][]*Vertex2d{group})
+    shape := newShape(group)
+
+    distances := shape.calcDistances(plane2d)
+    dist0 := math.Round(distances[0] * 1000)/1000
+    dist1 := math.Round(distances[1] * 1000)/1000
+
+    if dist0 != 2.108 || dist1 != 2.404 {
+        t.Errorf("Expected distances [2.108, 2.404], got distances %+v.",
+            [2]float64{dist0, dist1})
+    }
+}
+
+func TestShortestPath(t *testing.T){
+    testPlane := buildTestPlane()
+    plane2d := newPlane2d(testPlane)
+
+    plane2d.findShortestPaths()
+}
+
+/* test plane data is the first 6 point groups generated for a plane through
+ (0.0, 0.0, 0.0) and having no angle offset
+ */
+
+ func buildTestPlane()([][]*Vertex2d){
+    var plane [][]*Vertex2d
+
+    //SHAPE 0-------------------------------
+
+    shape0v0 := &Vertex2d {[2]float64{-0.6689534883720931, -2.024651162790698},
+        174002, 3, math.Atan2(-2.024651162790698, -0.6689534883720931), -1}
+
+    shape0v1 := &Vertex2d {[2]float64{-2.5698580121703856, -1.5302434077079108},
+        174002, 3, math.Atan2(-1.5302434077079108, -2.5698580121703856), -1}
+
+    shape0v2 := &Vertex2d {[2]float64{2.1000632911392407, 1.520506329113924},
+        174002, 3, math.Atan2(1.520506329113924, 2.1000632911392407), -1}
+
+    shape0 := []*Vertex2d{shape0v0, shape0v1, shape0v2}
+    plane = append(plane, shape0)
+
+    //SHAPE 1-------------------------------
+
+    shape1v0 := &Vertex2d {[2]float64{1.1132806324110673, -4.004584980237154},
+        279551, 3, math.Atan2(-4.004584980237154, 1.1132806324110673), -1}
+
+    shape1v1 := &Vertex2d {[2]float64{-0.6689534883720931, -2.024651162790698},
+        279551, 3, math.Atan2(-2.024651162790698, -0.6689534883720931), -1}
+
+    shape1v2 := &Vertex2d {[2]float64{-2.5698580121703856, -1.5302434077079108},
+        279551, 3, math.Atan2(-1.5302434077079108, -2.5698580121703856), -1}
+
+    shape1 := []*Vertex2d{shape1v0, shape1v1, shape1v2}
+    plane = append(plane, shape1)
+
+    //SHAPE 2-------------------------------
+
+    shape2v0 := &Vertex2d {[2]float64{1.1132806324110673, -4.004584980237154},
+        873306, 3, math.Atan2(-4.004584980237154, 1.1132806324110673), -1}
+
+    shape2v1 := &Vertex2d {[2]float64{-0.6689534883720931, -2.024651162790698},
+        873306, 3, math.Atan2(-2.024651162790698, -0.6689534883720931), -1}
+
+    shape2v2 := &Vertex2d {[2]float64{2.1000632911392407, 1.520506329113924},
+        873306, 3, math.Atan2(1.520506329113924, 2.1000632911392407), -1}
+
+    shape2 := []*Vertex2d{shape2v0, shape2v1, shape2v2}
+    plane = append(plane, shape2)
+
+    //SHAPE 3-------------------------------
+
+    shape3v0 := &Vertex2d {[2]float64{4.853345794392524, -5.59581308411215},
+        1204311, 3, math.Atan2(-5.59581308411215, 4.853345794392524), -1}
+    
+    shape3v1 := &Vertex2d {[2]float64{1.1132806324110673, -4.004584980237154},
+        1204311, 3, math.Atan2(-4.004584980237154, 1.1132806324110673), -1}
+
+    shape3v2 := &Vertex2d {[2]float64{2.1000632911392407, 1.520506329113924},
+        1204311, 3, math.Atan2(1.520506329113924, 2.1000632911392407), -1}
+
+    shape3v3 := &Vertex2d {[2]float64{3.50948, 0.013360000000000483},
+        1204311, 3, math.Atan2(0.013360000000000483, 3.50948), -1}
+
+    shape3 := []*Vertex2d{shape3v0, shape3v1, shape3v2, shape3v3}
+    plane = append(plane, shape3)
+
+    //SHAPE 4-------------------------------
+
+    shape4v0 := &Vertex2d {[2]float64{4.7650420168067225, -7.289467787114846},
+        1204290, 3, math.Atan2(-7.289467787114846, 4.7650420168067225), -1}
+
+    shape4v1 := &Vertex2d {[2]float64{2.302788296041308, -6.8909122203098105},
+        1204290, 3, math.Atan2(-6.8909122203098105, 2.302788296041308), -1}
+
+    shape4v2 := &Vertex2d {[2]float64{1.1132806324110673, -4.004584980237154},
+        1204290, 3, math.Atan2(-4.004584980237154, 1.1132806324110673), -1}
+
+    shape4v3 := &Vertex2d {[2]float64{4.853345794392524, -5.59581308411215},
+        1204290, 3, math.Atan2(-5.59581308411215, 4.853345794392524), -1}
+
+    shape4 := []*Vertex2d{shape4v0, shape4v1, shape4v2, shape4v3}
+    plane = append(plane, shape4)
+
+    //SHAPE 5-------------------------------
+
+    shape5v0 := &Vertex2d {[2]float64{2.302788296041308, -6.8909122203098105},
+        1222470, 3, math.Atan2(-6.8909122203098105, 2.302788296041308), -1}
+
+    shape5v1 := &Vertex2d {[2]float64{1.1132806324110673, -4.004584980237154},
+        1222470, 3, math.Atan2(-4.004584980237154, 1.1132806324110673), -1}
+
+    shape5v2 := &Vertex2d {[2]float64{-0.6786301369863015, -6.013150684931507},
+        1222470, 3, math.Atan2(-6.013150684931507, -0.6786301369863015), -1}
+
+    shape5 := []*Vertex2d{shape5v0, shape5v1, shape5v2}
+    plane = append(plane, shape5)
+
+    return plane
+}
